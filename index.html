@@ -791,8 +791,8 @@
 </div>
 
 <script>
-const API_BASE='';  // 使用相对路径，由CF Function代理
-const API_KEY='';   // API Key移至CF Pages环境变量
+const API_BASE='https://power-api.yingdao.com';
+const API_KEY='AP_zq2LVtx7BoRzFDix';
 const AGENT_ID='09d08458-9b9c-41c7-ba5d-2daeb70e148a';
 // 复用头像图标（跟 header 里那张同一个 base64）
 const ICON_URL = document.querySelector('header .title .icon').src;
@@ -921,25 +921,21 @@ function add(role,text){
 
 async function ensureConv(){
   if(conv) return conv;
-  // 通过CF Function创建会话，API Key不暴露在前端
-  const r=await fetch(`/api/chat`,{
-    method:'POST',
-    headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({content:'',attachments:[],AGENT_ID})
+  const r=await fetch(`${API_BASE}/oapi/agent/v1/agents/${AGENT_ID}/conversations`,{
+    method:'POST',headers:{'Authorization':`Bearer ${API_KEY}`,'Content-Type':'application/json'},body:'{}'
   });
   const j=await r.json();
-  if(!j.data) throw new Error('conv');
+  if(!j.success) throw new Error(j.msg||'conv');
   conv=j.data.conversationUuid;
   sess.textContent=conv.slice(0,8).toUpperCase();
   return conv;
 }
 async function stream(text,attachments,onDelta){
   await ensureConv();
-  // 通过CF Function代理流式对话
-  const resp=await fetch(`/api/chat`,{
+  const resp=await fetch(`${API_BASE}/oapi/agent/v1/conversations/${conv}/execute/stream`,{
     method:'POST',
-    headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({content:text,attachments:attachments||[],AGENT_ID})
+    headers:{'Authorization':`Bearer ${API_KEY}`,'Content-Type':'application/json','Accept':'text/event-stream'},
+    body:JSON.stringify({content:text,attachments:attachments||[]})
   });
   if(!resp.ok) throw new Error('HTTP '+resp.status);
   const reader=resp.body.getReader();
@@ -1041,8 +1037,9 @@ async function uploadFile(file){
   const boundary = 'yd' + Math.random().toString(36).slice(2);
   const fd = new FormData();
   fd.append('file', file);
-  const r = await fetch(`/api/upload`,{
+  const r = await fetch(`${API_BASE}/oapi/power/v1/file/upload`,{
     method:'POST',
+    headers:{'Authorization':`Bearer ${API_KEY}`},
     body:fd
   });
   const j = await r.json();
