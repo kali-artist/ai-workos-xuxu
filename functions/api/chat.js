@@ -3,182 +3,75 @@ export async function onRequest({ request, env }) {
     return new Response('Method Not Allowed', { status: 405 });
   }
 
-  // 1. Read API key from Authorization header (前端通过 Authorization: Bearer <key> 传入).
-  const authHeader = request.headers.get('Authorization') || request.headers.get('authorization');
-  let apiKey = null;
-  if (authHeader && authHeader.toLowerCase().startsWith('bearer ')) {
-    apiKey = authHeader.slice(7).trim();
-  }
-  // Fallback: env (for local dev / wrangler secret).
-  if (!apiKey && env && env.YINGDAO_API_KEY) {
-    apiKey = env.YINGDAO_API_KEY;
-  }
+  const apiKey = env.YINGDAO_API_KEY;
   if (!apiKey) {
-    return new Response(JSON.stringify({ error: 'API key required' }), {
-      status: 401,
+    return new Response(JSON.stringify({ error: 'API key not configured' }), {
+      status: 500,
       headers: { 'Content-Type': 'application/json' }
     });
   }
 
-  // 2. Parse body — 影刀原始 {content, attachments}，外加可选 conversationId/AGENT_ID.
-  let body = {};
-  try { body = await request.json(); } catch {}
-  const { content, attachments, conversationId, AGENT_ID } = body;
-  const agentId = AGENT_ID || '09d08458-9b9c-41c7-ba5d-2daeb70e148a';
+  const body = await request.json().catch(() => ({}));
+  const { content, attachments, conversationId } = body;
+  const AGENT_ID = '09d08458-9b9c-41c7-ba5d-2daeb70e148a';
 
   const ydHeaders = {
     'Authorization': `Bearer ${apiKey}`,
     'Content-Type': 'application/json'
   };
 
-  // 3. ensureConv 模式：空 content + 无 attachments → 仅创建会话并返回 UUID JSON.
-  const isEnsureConv =
-    !content &&
-    (!attachments || attachments.length === 0) &&
-    !conversationId;
-
-  if (isEnsureConv) {
-    const convRes = await fetch(
-      `https://power-api.yingdao.com/oapi/agent/v1/agents/${agentId}/conversations`,
-      { method: 'POST', headers: ydHeaders, body: '{}' }
-    );
-    if (!convRes.ok) {
-      return new Response(
-        JSON.stringify({ success: false, msg: await convRes.text() }),
-        { status: convRes.status, headers: { 'Content-Type': 'application/json' } }
-      );
-    }
-    const convData = await convRes.json();
-    const convId = convData.data && convData.data.conversationUuid;
-    if (!convId) {
-      return new Response(
-        JSON.stringify({ success: false, msg: 'No conversationUuid', raw: convData }),
-        { status: 500, headers: { 'Content-Type': 'application/json' } }
-      );
-    }
-    return new Response(
-      JSON.stringify({ success: true, data: { conversationUuid: convId } }),
-      { status: 200, headers: { 'Content-Type': 'application/json' } }
-    );
-  }
-
-  // 4. stream 模式：需要 conversationId；没有就先创建.
+  // 有 conversationId 就直接用，没有就创建新的
   let convId = conversationId;
   if (!convId) {
     const convRes = await fetch(
-      `https://power-api.yingdao.com/oapi/agent/v1/agents/${agentId}/conversations`,
+      `https://power-api.yingdao.com/oapi/agent/v1/agents/${AGENT_ID}/conversations`,
       { method: 'POST', headers: ydHeaders, body: '{}' }
     );
     if (!convRes.ok) {
-      return new Response(
-        JSON.stringify({ success: false, msg: await convRes.text() }),
-        { status: convRes.status, headers: { 'Content-Type': 'application/json' } }
-      );
+      return new Response(await convRes.text(), {
+        status: convRes.status,
+        headers: { 'Content-Type': 'application/json' }
+      });
     }
     const convData = await convRes.json();
-    convId = convData.data && convData.data.conversationUuid;
+    convId = convData.data?.conversationUuid;
     if (!convId) {
-      return new Response(
-        JSON.stringify({ success: false, msg: 'No conversationUuid' }),
-        { status: 500, headers: { 'Content-Type': 'application/json' } }
-      );
+      return new Response(JSON.stringify({ success: false, msg: 'No conversationUuid', raw: convData }), {
+        status: 500,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+    // 没有 conversationId 说明是 ensureConv 请求，返回 JSON
+    if (!content && (!attachments || attachments.length === 0)) {
+      return new Response(JSON.stringify({ success: true, data: { conversationUuid: convId } }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' }
+      });
     }
   }
 
-  // 5. 调用影刀 stream 端点；body 用影刀原始字段，不带 conversationId.
+  // stream 请求
   const streamRes = await fetch(
     `https://power-api.yingdao.com/oapi/agent/v1/conversations/${convId}/execute/stream`,
     {
       method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-        'Accept': 'text/event-stream'
-      },
+      headers: { ...ydHeaders, 'Accept': 'text/event-stream' },
       body: JSON.stringify({ content: content || '', attachments: attachments || [] })
     }
   );
 
   if (!streamRes.ok) {
-    return new Response(
-      JSON.stringify({ success: false, msg: await streamRes.text() }),
-      { status: streamRes.status, headers: { 'Content-Type': 'application/json' } }
-    );
+    return new Response(await streamRes.text(), {
+      status: streamRes.status,
+      headers: { 'Content-Type': 'application/json' }
+    });
   }
 
-  // 6. 流式转发：用 TextDecoderStream 把 Uint8Array 批次转成字符串，
-  //    再手动解析 SSE 事件并转换 event 名字，最后通过可读流立即发出去.
-  const textStream = streamRes.body
-    .pipeThrough(new TextDecoderStream())
-    .pipeThrough(new TransformStream({
-      transform(chunk, controller) {
-        // chunk 是解码后的字符串，按 \n 分割处理
-        let remaining = chunk;
-        let newlineIdx;
-
-        while ((newlineIdx = remaining.indexOf('\n')) !== -1) {
-          const line = remaining.slice(0, newlineIdx);
-          remaining = remaining.slice(newlineIdx + 1);
-
-          const trimmed = line.replace(/\r$/, '');
-          if (!trimmed) {
-            flushBlock(controller);
-          } else if (trimmed.startsWith(':')) {
-            // SSE comment，忽略
-          } else if (trimmed.startsWith('id:')) {
-            curId = trimmed.slice(3).trim();
-          } else if (trimmed.startsWith('event:')) {
-            curEvent = trimmed.slice(6).trim();
-          } else if (trimmed.startsWith('data:')) {
-            const v = trimmed.slice(5);
-            curData = curData ? curData + '\n' + v : v;
-          }
-        }
-      },
-      flush(controller) {
-        // 流结束时 flush 剩余的未完成 block
-        flushBlock(controller);
-      }
-    }));
-
-  let curEvent = '';
-  let curData = '';
-  let curId = '';
-
-  function flushBlock(controller) {
-    const ev = curEvent;
-    const dt = curData;
-    const id = curId;
-    curEvent = '';
-    curData = '';
-    curId = '';
-    if (!ev && !dt) return;
-
-    // 从 data JSON 里取 type 字段作为事件名
-    let type = ev; // 默认用 SSE event 名
-    try {
-      const parsed = JSON.parse(dt);
-      // yingdao 的真实类型在 data.type 或顶层的 type
-      type = parsed.type || parsed.data?.type || ev || 'message';
-    } catch { type = ev || 'message'; }
-
-    // 丢弃生命周期类事件（不含实际内容）
-    if (type === 'xybot-run-lifecycle' || type === 'run.terminal' ||
-        type === 'server.connected' || type === 'run.status') return;
-
-    // 转换关键类型
-    if (type === 'xybot-message') type = 'message.part.updated';
-    else if (type === 'message.updated') type = 'message.updated';
-    else if (type === 'message.delta') type = 'message.part.delta';
-
-    controller.enqueue(`id:${id || ''}\nevent:${type}\ndata:${dt}\n\n`);
-  }
-
-  return new Response(textStream, {
+  // 直接透传影刀的 SSE，不做任何转换
+  return new Response(streamRes.body, {
     status: 200,
     headers: {
       'Content-Type': 'text/event-stream',
-      'X-Accel-Buffering': 'no',
       'Cache-Control': 'no-cache'
     }
   });
