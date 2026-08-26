@@ -922,7 +922,7 @@ function add(role,text){
 async function ensureConv(){
   if(conv) return conv;
   const r=await fetch(`${API_BASE}/api/chat`,{
-    method:'POST',headers:{'Authorization':`Bearer ${API_KEY}`,'Content-Type':'application/json'},body:'{}'
+    method:'POST',headers:{'Content-Type':'application/json'},body:'{}'
   });
   const j=await r.json();
   if(!j.success) throw new Error(j.msg||'conv');
@@ -934,7 +934,7 @@ async function stream(text,attachments,onDelta){
   await ensureConv();
   const resp=await fetch(`${API_BASE}/api/chat`,{
     method:'POST',
-    headers:{'Authorization':`Bearer ${API_KEY}`,'Content-Type':'application/json','Accept':'text/event-stream'},
+    headers:{'Content-Type':'application/json','Accept':'text/event-stream'},
     body:JSON.stringify({content:text,attachments:attachments||[],conversationId:conv})
   });
   if(!resp.ok) throw new Error('HTTP '+resp.status);
@@ -1039,7 +1039,7 @@ async function uploadFile(file){
   fd.append('file', file);
   const r = await fetch(`${API_BASE}/api/upload`,{
     method:'POST',
-    headers:{'Authorization':`Bearer ${API_KEY}`},
+    headers:{},
     body:fd
   });
   const j = await r.json();
