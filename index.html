@@ -1004,8 +1004,8 @@ async function stream(text,attachments,onDelta){
             // 其它都当结束
             done = true; break;
           }
-        } else if(t==='run.terminal' || t==='session.done' || t==='run.completed' || t==='run.finished'){
-          // 兜底：真正的运行终点
+        } else if(t==='run.terminal' || t==='session.done' || t==='run.completed' || t==='run.finished' || t==='server.heartbeat'){
+          // 兜底：真正的运行终点（yingdao用server.heartbeat重复发送后结束流）
           done = true; break;
         }
       }
