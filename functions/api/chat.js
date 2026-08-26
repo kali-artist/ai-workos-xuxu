@@ -32,9 +32,9 @@ export async function onRequest({ request, env }) {
   }
 
   const convData = await convRes.json();
-  const convId = convData.data?.conversation_id;
+  const convId = convData.data?.conversationUuid;
   if (!convId) {
-    return new Response(JSON.stringify({ error: 'No conversation_id returned', raw: convData }), {
+    return new Response(JSON.stringify({ error: 'No conversationUuid returned', raw: convData }), {
       status: 500,
       headers: { 'Content-Type': 'application/json' }
     });
