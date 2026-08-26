@@ -106,16 +106,46 @@ export async function onRequest({ request, env }) {
     );
   }
 
-  // 6. Pass-through 流：直接转发影刀 SSE，只改 event 名字.
-  const reader = streamRes.body.getReader();
-  const decoder = new TextDecoder();
-  const encoder = new TextEncoder();
+  // 6. 流式转发：用 TextDecoderStream 把 Uint8Array 批次转成字符串，
+  //    再手动解析 SSE 事件并转换 event 名字，最后通过可读流立即发出去.
+  const textStream = streamRes.body
+    .pipeThrough(new TextDecoderStream())
+    .pipeThrough(new TransformStream({
+      transform(chunk, controller) {
+        // chunk 是解码后的字符串，按 \n 分割处理
+        let remaining = chunk;
+        let newlineIdx;
+
+        while ((newlineIdx = remaining.indexOf('\n')) !== -1) {
+          const line = remaining.slice(0, newlineIdx);
+          remaining = remaining.slice(newlineIdx + 1);
+
+          const trimmed = line.replace(/\r$/, '');
+          if (!trimmed) {
+            flushBlock(controller);
+          } else if (trimmed.startsWith(':')) {
+            // SSE comment，忽略
+          } else if (trimmed.startsWith('id:')) {
+            curId = trimmed.slice(3).trim();
+          } else if (trimmed.startsWith('event:')) {
+            curEvent = trimmed.slice(6).trim();
+          } else if (trimmed.startsWith('data:')) {
+            const v = trimmed.slice(5);
+            curData = curData ? curData + '\n' + v : v;
+          }
+        }
+      },
+      flush(controller) {
+        // 流结束时 flush 剩余的未完成 block
+        flushBlock(controller);
+      }
+    }));
+
   let curEvent = '';
   let curData = '';
   let curId = '';
-  let buf = '';
 
-  const flushBlock = () => {
+  function flushBlock(controller) {
     const ev = curEvent;
     const dt = curData;
     const id = curId;
@@ -123,58 +153,13 @@ export async function onRequest({ request, env }) {
     curData = '';
     curId = '';
     if (!ev && !dt) return;
-
-    // 丢弃 lifecycle 事件
     if (ev === 'xybot-run-lifecycle') return;
 
-    // 转换 event 名字
     const outEv = ev === 'xybot-message' ? 'message.part.updated' : (ev || 'message');
-    return { event: outEv, data: dt, id };
-  };
+    controller.enqueue(`id:${id || ''}\nevent:${outEv}\ndata:${dt}\n\n`);
+  }
 
-  const stream = new ReadableStream({
-    async pull(controller) {
-      const { done, value } = await reader.read();
-      if (done) {
-        const block = flushBlock();
-        if (block && block.data) {
-          controller.enqueue(encoder.encode(`id:${block.id || ''}\nevent:${block.event}\ndata:${block.data}\n\n`));
-        }
-        controller.close();
-        return;
-      }
-
-      buf += decoder.decode(value, { stream: true });
-      const lines = buf.split('\n');
-      buf = lines.pop() || '';
-
-      for (const line of lines) {
-        const trimmed = line.replace(/\r$/, '');
-        if (trimmed === '') {
-          const block = flushBlock();
-          if (block && block.data) {
-            controller.enqueue(encoder.encode(`id:${block.id || ''}\nevent:${block.event}\ndata:${block.data}\n\n`));
-          }
-        } else if (trimmed.startsWith(':')) {
-          // SSE comment
-        } else if (trimmed.startsWith('id:')) {
-          curId = trimmed.slice(3).trim();
-        } else if (trimmed.startsWith('event:')) {
-          curEvent = trimmed.slice(6).trim();
-        } else if (trimmed.startsWith('data:')) {
-          const v = trimmed.slice(5);
-          const val = v.startsWith(' ') ? v.slice(1) : v;
-          curData = curData ? curData + '\n' + val : val;
-        }
-      }
-    },
-    cancel(reason) {
-      console.error('Stream cancelled:', reason);
-      reader.cancel(reason).catch(() => {});
-    }
-  });
-
-  return new Response(stream, {
+  return new Response(textStream, {
     status: 200,
     headers: {
       'Content-Type': 'text/event-stream',
