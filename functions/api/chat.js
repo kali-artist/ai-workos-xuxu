@@ -8,7 +8,12 @@ export async function onRequest({ request, env }) {
   const apiKey = env.YINGDAO_API_KEY;
 
   if (!apiKey) {
-    return new Response(JSON.stringify({ error: 'API key not configured' }), {
+    return new Response(JSON.stringify({
+      error: 'API key not configured',
+      envKeys: Object.keys(env),
+      envYingdao: env.YINGDAO_API_KEY,
+      typeofEnv: typeof env
+    }), {
       status: 500,
       headers: { 'Content-Type': 'application/json' }
     });
