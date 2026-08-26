@@ -106,96 +106,80 @@ export async function onRequest({ request, env }) {
     );
   }
 
-  // 6. 转换 SSE：xybot-run-lifecycle 丢弃；xybot-message → message.part.updated；
-  //    其余事件原样转发.
-  const { readable, writable } = new TransformStream();
-  const writer = writable.getWriter();
+  // 6. Pass-through 流：直接转发影刀 SSE，只改 event 名字.
+  const reader = streamRes.body.getReader();
+  const decoder = new TextDecoder();
   const encoder = new TextEncoder();
+  let curEvent = '';
+  let curData = '';
+  let curId = '';
+  let buf = '';
 
-  const write = (event, data) => {
-    writer.write(encoder.encode(`event:${event}\ndata:${JSON.stringify(data)}\n\n`));
+  const flushBlock = () => {
+    const ev = curEvent;
+    const dt = curData;
+    const id = curId;
+    curEvent = '';
+    curData = '';
+    curId = '';
+    if (!ev && !dt) return;
+
+    // 丢弃 lifecycle 事件
+    if (ev === 'xybot-run-lifecycle') return;
+
+    // 转换 event 名字
+    const outEv = ev === 'xybot-message' ? 'message.part.updated' : (ev || 'message');
+    return { event: outEv, data: dt, id };
   };
 
-  (async () => {
-    const reader = streamRes.body.getReader();
-    const decoder = new TextDecoder();
-    let buf = '';
-    let curEvent = '';
-    let curData = '';
-
-    const flushBlock = () => {
-      const ev = curEvent;
-      const dt = curData;
-      curEvent = '';
-      curData = '';
-      if (!ev && !dt) return;
-
-      if (ev === 'xybot-run-lifecycle') return;
-
-      if (ev === 'xybot-message') {
-        let text = '';
-        try {
-          const parsed = JSON.parse(dt);
-          text =
-            parsed.content ||
-            (parsed.data && parsed.data.content) ||
-            (parsed.properties && parsed.properties.part && parsed.properties.part.text) ||
-            '';
-        } catch {}
-        if (text) {
-          write('message.part.updated', {
-            properties: { part: { type: 'text', text } }
-          });
+  const stream = new ReadableStream({
+    async pull(controller) {
+      const { done, value } = await reader.read();
+      if (done) {
+        const block = flushBlock();
+        if (block && block.data) {
+          controller.enqueue(encoder.encode(`id:${block.id || ''}\nevent:${block.event}\ndata:${block.data}\n\n`));
         }
+        controller.close();
         return;
       }
 
-      // 其它事件原样转发.
-      try {
-        write(ev || 'message', JSON.parse(dt));
-      } catch {
-        write(ev || 'message', dt);
-      }
-    };
+      buf += decoder.decode(value, { stream: true });
+      const lines = buf.split('\n');
+      buf = lines.pop() || '';
 
-    try {
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        buf += decoder.decode(value, { stream: true });
-        const lines = buf.split('\n');
-        buf = lines.pop() || '';
-
-        for (const line of lines) {
-          const trimmed = line.replace(/\r$/, '');
-          if (trimmed === '') {
-            flushBlock();
-          } else if (trimmed.startsWith(':')) {
-            // SSE 注释，跳过.
-          } else if (trimmed.startsWith('event:')) {
-            curEvent = trimmed.slice(6).trim();
-          } else if (trimmed.startsWith('data:')) {
-            const v = trimmed.slice(5);
-            const val = v.startsWith(' ') ? v.slice(1) : v;
-            curData = curData ? curData + '\n' + val : val;
+      for (const line of lines) {
+        const trimmed = line.replace(/\r$/, '');
+        if (trimmed === '') {
+          const block = flushBlock();
+          if (block && block.data) {
+            controller.enqueue(encoder.encode(`id:${block.id || ''}\nevent:${block.event}\ndata:${block.data}\n\n`));
           }
+        } else if (trimmed.startsWith(':')) {
+          // SSE comment
+        } else if (trimmed.startsWith('id:')) {
+          curId = trimmed.slice(3).trim();
+        } else if (trimmed.startsWith('event:')) {
+          curEvent = trimmed.slice(6).trim();
+        } else if (trimmed.startsWith('data:')) {
+          const v = trimmed.slice(5);
+          const val = v.startsWith(' ') ? v.slice(1) : v;
+          curData = curData ? curData + '\n' + val : val;
         }
       }
-      if (curEvent || curData) flushBlock();
-    } catch (e) {
-      console.error('SSE transform error:', e);
-    } finally {
-      try { await writer.close(); } catch {}
+    },
+    cancel(reason) {
+      console.error('Stream cancelled:', reason);
+      reader.cancel(reason).catch(() => {});
     }
-  })();
+  });
 
-  return new Response(readable, {
+  return new Response(stream, {
     status: 200,
     headers: {
       'Content-Type': 'text/event-stream',
-      'Cache-Control': 'no-cache',
-      'Connection': 'keep-alive'
+      'X-Accel-Buffering': 'no',
+      'Cache-Control': 'no-cache'
     }
   });
 }
