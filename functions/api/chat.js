@@ -153,10 +153,25 @@ export async function onRequest({ request, env }) {
     curData = '';
     curId = '';
     if (!ev && !dt) return;
-    if (ev === 'xybot-run-lifecycle') return;
 
-    const outEv = ev === 'xybot-message' ? 'message.part.updated' : (ev || 'message');
-    controller.enqueue(`id:${id || ''}\nevent:${outEv}\ndata:${dt}\n\n`);
+    // 从 data JSON 里取 type 字段作为事件名
+    let type = ev; // 默认用 SSE event 名
+    try {
+      const parsed = JSON.parse(dt);
+      // yingdao 的真实类型在 data.type 或顶层的 type
+      type = parsed.type || parsed.data?.type || ev || 'message';
+    } catch { type = ev || 'message'; }
+
+    // 丢弃生命周期类事件（不含实际内容）
+    if (type === 'xybot-run-lifecycle' || type === 'run.terminal' ||
+        type === 'server.connected' || type === 'run.status') return;
+
+    // 转换关键类型
+    if (type === 'xybot-message') type = 'message.part.updated';
+    else if (type === 'message.updated') type = 'message.updated';
+    else if (type === 'message.delta') type = 'message.part.delta';
+
+    controller.enqueue(`id:${id || ''}\nevent:${type}\ndata:${dt}\n\n`);
   }
 
   return new Response(textStream, {
