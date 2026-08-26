@@ -1,4 +1,8 @@
-export async function onRequestPost({ request, env }) {
+export async function onRequest({ request, env }) {
+  if (request.method !== 'POST') {
+    return new Response('Method Not Allowed', { status: 405 });
+  }
+
   const apiKey = env.YINGDAO_API_KEY;
   if (!apiKey) {
     return new Response(JSON.stringify({ error: 'API key not configured' }), {

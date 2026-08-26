@@ -1,6 +1,10 @@
-export async function onRequestPost({ request, env }) {
+export async function onRequest({ request, env }) {
+  if (request.method !== 'POST') {
+    return new Response('Method Not Allowed', { status: 405 });
+  }
+
   const body = await request.json();
-  const { AGENT_ID } = body;
+  const { content, attachments, sessionId } = body;
 
   const apiKey = env.YINGDAO_API_KEY;
   if (!apiKey) {
@@ -9,6 +13,9 @@ export async function onRequestPost({ request, env }) {
       headers: { 'Content-Type': 'application/json' }
     });
   }
+
+  // Agent ID 固定
+  const AGENT_ID = '09d08458-9b9c-41c7-ba5d-2daeb70e148a';
 
   // Step 1: create conversation
   const convRes = await fetch(`https://power-api.yingdao.com/oapi/agent/v1/agents/${AGENT_ID}/conversations`, {
@@ -22,7 +29,7 @@ export async function onRequestPost({ request, env }) {
 
   if (!convRes.ok) {
     const text = await convRes.text();
-    return new Response(text, { status: convRes.status, headers: { 'Content-Type': 'application/json' } });
+    return new Response(text, { status: convRes.status, headers: { 'Content-Type': 'text/plain' } });
   }
 
   const convData = await convRes.json();
@@ -35,8 +42,6 @@ export async function onRequestPost({ request, env }) {
   }
 
   // Step 2: stream execute
-  const { content, attachments } = body;
-
   const executeBody = {
     content: content || '',
     attachments: attachments || []
