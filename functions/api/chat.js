@@ -4,7 +4,7 @@ export async function onRequest({ request, env }) {
   }
 
   const body = await request.json();
-  const { content, attachments, sessionId } = body;
+  const { content, attachments } = body;
 
   const apiKey = env.YINGDAO_API_KEY;
   if (!apiKey) {
@@ -14,7 +14,6 @@ export async function onRequest({ request, env }) {
     });
   }
 
-  // Agent ID 固定
   const AGENT_ID = '09d08458-9b9c-41c7-ba5d-2daeb70e148a';
 
   // Step 1: create conversation
@@ -42,11 +41,6 @@ export async function onRequest({ request, env }) {
   }
 
   // Step 2: stream execute
-  const executeBody = {
-    content: content || '',
-    attachments: attachments || []
-  };
-
   const streamRes = await fetch(`https://power-api.yingdao.com/oapi/agent/v1/conversations/${convId}/execute/stream`, {
     method: 'POST',
     headers: {
@@ -54,7 +48,7 @@ export async function onRequest({ request, env }) {
       'Content-Type': 'application/json',
       'Accept': 'text/event-stream'
     },
-    body: JSON.stringify(executeBody)
+    body: JSON.stringify({ content: content || '', attachments: attachments || [] })
   });
 
   if (!streamRes.ok) {
@@ -62,7 +56,6 @@ export async function onRequest({ request, env }) {
     return new Response(text, { status: streamRes.status, headers: { 'Content-Type': 'text/plain' } });
   }
 
-  // Proxy SSE stream as-is
   return new Response(streamRes.body, {
     status: streamRes.status,
     headers: {

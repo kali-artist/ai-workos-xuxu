@@ -11,7 +11,6 @@ export async function onRequest({ request, env }) {
     });
   }
 
-  // Forward the multipart form data as-is
   const streamRes = await fetch('https://power-api.yingdao.com/oapi/power/v1/file/upload', {
     method: 'POST',
     headers: {
