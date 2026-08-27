@@ -812,7 +812,7 @@
     <button class="send" id="send">发 送</button>
     <div class="footnote">
       <span>由 影刀 RPA 需求顾问 · Agent 09d08458 驱动</span>
-      <span class="r">© <span id="yy">2026</span> · REQ.01 · v0827.8</span>
+      <span class="r">© <span id="yy">2026</span> · REQ.01 · v0827.9</span>
     </div>
   </footer>
 </div>
@@ -1527,6 +1527,76 @@ function enhanceQuestions(html){
   });
 
 
+
+  /* ---------- 第 5 类：<ol> 编号问题列表 → 每个问题一个开放式文本表单 ---------- */
+  // 典型场景：Agent 输出 "2. 你的业务是什么？（比如：xxx）\n3. 哪里最耗时？（比如：xxx）"
+  const ols = [...wrap.querySelectorAll('ol')];
+  ols.forEach(ol=>{
+    if(!wrap.contains(ol)) return;
+    if(ol.closest('.qform') || ol.closest('li')) return;
+
+    const items = [...ol.querySelectorAll(':scope > li')];
+    if(items.length === 0) return;
+
+    // 检查每个 li 是否包含问号（判定为问题）
+    const questionFlags = items.map(li=>{
+      const t = (li.textContent||'').trim();
+      return t.length >= 4 && /[?？]/.test(t);
+    });
+    const qItemCount = questionFlags.filter(Boolean).length;
+    // 至少有 1 个问题，且问题占比 >= 50%
+    if(qItemCount === 0 || qItemCount < items.length * 0.5) return;
+
+    const frag = document.createDocumentFragment();
+    items.forEach((li, idx)=>{
+      const rawText = (li.textContent||'').trim();
+
+      if(!questionFlags[idx]){
+        // 非问题项（如提示语），保留为段落
+        const p = document.createElement('p');
+        p.innerHTML = li.innerHTML;
+        frag.appendChild(p);
+        return;
+      }
+
+      // 分离问题主体和括号内的提示
+      let questionText = rawText;
+      let placeholder = '请在此描述你的答案…';
+      // 尝试提取（比如：xxx）或（例如：xxx）作为 placeholder
+      const bracketMatch = rawText.match(/^([\s\S]*[?？。！])\s*[（(]((?:比如|例如|如|举例)[：:]\s*[\s\S]+)[）)]$/);
+      if(bracketMatch){
+        questionText = bracketMatch[1].trim();
+        placeholder = bracketMatch[2].replace(/^(?:比如|例如|如|举例)[：:]\s*/, '').trim();
+      } else {
+        // 也处理问号在括号内的情况：整段以）结尾但中间有？
+        const altMatch = rawText.match(/^([\s\S]*[?？])\s*[（(]([\s\S]+)[）)]$/);
+        if(altMatch){
+          questionText = altMatch[1].trim();
+          placeholder = altMatch[2].replace(/^(?:比如|例如|如|举例)[：:]\s*/, '').trim();
+        }
+      }
+
+      qCount++;
+      const qid = 'qf_' + Math.random().toString(36).slice(2,8);
+      const cleanQ = stripPrefix(questionText.replace(/[?？:：]\s*$/, ''));
+      const safePlaceholder = placeholder.replace(/"/g,'&quot;');
+      const qform = document.createElement('div');
+      qform.className = 'qform text-form';
+      qform.dataset.idx = qCount;
+      qform.dataset.qid = qid;
+      qform.dataset.question = cleanQ;
+      qform.innerHTML = `<div class="qform-head">
+        <span><em class="qnum">Q${qCount}</em>${cleanQ}</span>
+        <span class="hint">开放式 · 可留空</span>
+      </div>
+      <textarea class="qform-textarea" placeholder="${safePlaceholder}"></textarea>`;
+      frag.appendChild(qform);
+    });
+
+    ol.parentNode.insertBefore(frag, ol);
+    ol.remove();
+  });
+
   /* ---------- 第 4 类：纯问题段落（无 strong，但以 ?/？ 结尾）→ 开放式文本表单 ---------- */
   const allP4 = [...wrap.querySelectorAll('p')];
   allP4.forEach(p=>{
@@ -1543,8 +1613,8 @@ function enhanceQuestions(html){
     if(p.querySelector('strong')) return;
 
     // 必须像一个问题：以 ?/？ 结尾，或者有疑问关键词
-    const isQuestion = /[?？]\s*$/.test(text)
-      || (/^(?:\d+\s*[.．、)）:：]\s*)?(?:请|你|哪|需要|想|打算|如何|怎么|是否|多久|有没有|能否|可以|什么|为什么|目前|有无|希望|期望|倾向|方便|介意)/.test(text) && text.length <= 80);
+    // 纯文本段落（无 strong）必须以问号结尾才算问题，避免误判指引性文字
+    const isQuestion = /[?？]\s*$/.test(text);
     if(!isQuestion) return;
 
     qCount++;
