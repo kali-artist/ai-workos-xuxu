@@ -85,7 +85,7 @@ export async function onRequest({ request, env }) {
     }
   }
 
-  // 5. 调用影刀 stream 端点；body 用影刀原始字段，不带 conversationId.
+  // 5. 调用影刀 stream 端点.
   const streamRes = await fetch(
     `https://power-api.yingdao.com/oapi/agent/v1/conversations/${convId}/execute/stream`,
     {
