@@ -389,50 +389,7 @@
   .msg.agent .body hr{
     border:none;border-top:1px solid var(--line);margin:12px 0;
   }
-  .msg.agent .body a{
-    color:var(--accent-2);
-    text-decoration:underline;
-    text-underline-offset:3px;
-    text-decoration-style:dotted;
-    word-break:break-all;
-    transition:all .15s;
-  }
-  .msg.agent .body a:hover{
-    color:var(--ink);
-    text-decoration-style:solid;
-    background:rgba(245,181,42,0.15);
-    padding:1px 3px;
-    margin:-1px -3px;
-  }
-  /* 表格 */
-  .msg.agent .body table{
-    width:100%;
-    border-collapse:collapse;
-    margin:10px 0 14px;
-    font-size:13.5px;
-    line-height:1.5;
-    font-family:'Noto Sans SC','Inter Tight',sans-serif;
-  }
-  .msg.agent .body table th{
-    background:rgba(245,181,42,0.18);
-    font-weight:700;
-    text-align:left;
-    border:1px solid var(--line);
-    padding:8px 10px;
-    white-space:nowrap;
-    font-size:13px;
-  }
-  .msg.agent .body table td{
-    border:1px solid var(--line);
-    padding:7px 10px;
-    vertical-align:top;
-  }
-  .msg.agent .body table tbody tr:nth-child(even){
-    background:rgba(245,181,42,0.05);
-  }
-  .msg.agent .body table tbody tr:hover{
-    background:rgba(245,181,42,0.1);
-  }
+  .msg.agent .body a{color:var(--accent-2);text-decoration:underline}
   .msg.user .body{font-weight:600}
   .msg.agent .body{font-weight:500}
 
@@ -482,33 +439,6 @@
     margin-bottom:8px;
     font-style:italic;
     letter-spacing:0.02em;
-  }
-  /* 开放式文本表单 */
-  .msg.agent .body .qform.text-form .qform-textarea{
-    display:block;
-    width:100%;
-    min-height:64px;
-    max-height:240px;
-    background:#fff;
-    border:1px solid var(--line);
-    border-radius:2px;
-    padding:10px 12px;
-    font-family:'Noto Sans SC','Inter Tight',sans-serif;
-    font-size:14px;
-    line-height:1.55;
-    color:var(--ink);
-    outline:none;
-    resize:vertical;
-    box-sizing:border-box;
-    transition:border-color .15s, box-shadow .15s;
-  }
-  .msg.agent .body .qform.text-form .qform-textarea:focus{
-    border-color:var(--accent-2);
-    box-shadow:0 0 0 3px rgba(245,181,42,0.15);
-  }
-  .msg.agent .body .qform.text-form .qform-textarea::placeholder{
-    color:var(--dim);
-    font-style:italic;
   }
   .msg.agent .body .qform-opts{
     display:flex;flex-direction:column;gap:4px;
@@ -855,7 +785,7 @@
     <button class="send" id="send">发 送</button>
     <div class="footnote">
       <span>由 影刀 RPA 需求顾问 · Agent 09d08458 驱动</span>
-      <span class="r">© <span id="yy">2026</span> · REQ.01 · v0827.7</span>
+      <span class="r">© <span id="yy">2026</span> · REQ.01</span>
     </div>
   </footer>
 </div>
@@ -1061,7 +991,7 @@ function add(role,text){
 
 async function ensureConv(){
   if(conv) return conv;
-  const r=await fetch(`${API_BASE}/chat`,{
+  const r=await fetch(`${API_BASE}/api/chat`,{
     method:'POST',headers:{'Content-Type':'application/json'},body:'{}'
   });
   const j=await r.json();
@@ -1072,10 +1002,10 @@ async function ensureConv(){
 }
 async function stream(text,attachments,onDelta){
   await ensureConv();
-  const resp=await fetch(`${API_BASE}/chat`,{
+  const resp=await fetch(`${API_BASE}/api/chat`,{
     method:'POST',
     headers:{'Content-Type':'application/json','Accept':'text/event-stream'},
-    body:JSON.stringify({content:text,attachments:attachments||[]})
+    body:JSON.stringify({content:text,attachments:attachments||[],conversationId:conv})
   });
   if(!resp.ok) throw new Error('HTTP '+resp.status);
   const reader=resp.body.getReader();
@@ -1177,9 +1107,9 @@ async function uploadFile(file){
   const boundary = 'yd' + Math.random().toString(36).slice(2);
   const fd = new FormData();
   fd.append('file', file);
-  const r = await fetch(`${API_BASE}/upload`,{
+  const r = await fetch(`${API_BASE}/api/upload`,{
     method:'POST',
-    headers:{'Authorization':`Bearer ${API_KEY}`},
+    headers:{},
     body:fd
   });
   const j = await r.json();
@@ -1256,68 +1186,37 @@ function enhanceQuestions(html){
       return { text: el.textContent.trim(), hint: '' };
     }
     if(tag === 'P'){
-      // 多个 <strong> 时，取最后一个（通常是"介绍词 + 真正的问题"这种模式，问题在后）
-      const allStrongs = el.querySelectorAll('strong');
-      if(allStrongs.length > 0){
-        const lastStrong = allStrongs[allStrongs.length - 1];
-        // hint 只取最后一个 strong 之后的文字
-        let hintTxt = '';
-        let sib = lastStrong.nextSibling;
-        while(sib){
-          hintTxt += sib.textContent || '';
-          sib = sib.nextSibling;
-        }
-        return { text: lastStrong.textContent.trim(), hint: hintTxt.trim() };
+      const strong = el.querySelector(':scope > strong');
+      if(strong){
+        // 强调部分是问题主体，其余是提示
+        const clone = el.cloneNode(true);
+        clone.querySelectorAll(':scope > strong').forEach(s=>s.remove());
+        return { text: strong.textContent.trim(), hint: (clone.textContent||'').trim() };
       }
       // 纯段落
       const text = el.textContent.trim();
-      if(/[?？:：]$/.test(text)
-         || /^(?:请|你|哪|多久|需要|想|打算|如何|怎么|是否)/.test(text)
-         || /^\s*\d+\s*[.．、\)]/.test(text)
-         || text.length <= 60){
+      // 纯段落必须像个问题：以 ? / ? / 冒号 / "选" / "是" 之类结尾，或者足够短
+      if(/[?？:：]$/.test(text) || /^(?:请|你|哪|多久|需要|想|打算)/.test(text) || text.length <= 60){
         return { text: text.replace(/[:：]$/,''), hint: '' };
       }
       return null;
     }
     if(tag === 'OL'){
-      const items = [...el.querySelectorAll(':scope > li')];
-      if(items.length === 0) return null;
-      // 取最后一个 li 作为问题（多个 ol 项合并时，紧挨着 ul 的那个才是本题）
-      const li = items[items.length - 1];
-      const strong = li.querySelector('strong');
-      if(strong){
-        const clone = li.cloneNode(true);
-        clone.querySelectorAll('strong').forEach(s=>s.remove());
-        return { text: strong.textContent.trim(), hint: (clone.textContent||'').trim() };
+      const li = el.querySelector(':scope > li');
+      if(!li) return null;
+      // 如果 ol 只有一个 li 且里面是"疑似问题"，用它做问题
+      if(el.children.length === 1){
+        const strong = li.querySelector(':scope > strong');
+        if(strong){
+          const clone = li.cloneNode(true);
+          clone.querySelectorAll(':scope > strong').forEach(s=>s.remove());
+          return { text: strong.textContent.trim(), hint: (clone.textContent||'').trim() };
+        }
+        return { text: li.textContent.trim(), hint: '' };
       }
-      return { text: li.textContent.trim(), hint: '' };
     }
     if(tag === 'BLOCKQUOTE'){
       return { text: el.textContent.trim(), hint: '' };
-    }
-    return null;
-  }
-
-  // 找问题：先看紧邻的 prev，若不行再往前找一到两个块
-  function findQuestion(ul){
-    let prev = ul.previousElementSibling;
-    // 跳过空块
-    while(prev && !(prev.textContent||'').trim()){
-      prev = prev.previousElementSibling;
-    }
-    if(!prev) return null;
-
-    let q = extractQuestion(prev);
-    if(q) return {q, prev};
-
-    // 兜底：再往前找一层（比如中间夹了一段解释性 <p>）
-    let prev2 = prev.previousElementSibling;
-    while(prev2 && !(prev2.textContent||'').trim()){
-      prev2 = prev2.previousElementSibling;
-    }
-    if(prev2){
-      q = extractQuestion(prev2);
-      if(q) return {q, prev: prev2};
     }
     return null;
   }
@@ -1334,103 +1233,47 @@ function enhanceQuestions(html){
     if(ul.closest('.qform')) return;
 
     const items = [...ul.querySelectorAll(':scope > li')];
-    if(items.length === 0) return;
+    if(items.length < 2) return;
 
     const parsed = items.map(li => parseOption(li.innerHTML));
     const validOpts = parsed.filter(x=>x);
+    // 至少 2 个 + 至少占 60% 匹配
+    if(validOpts.length < 2) return;
+    if(validOpts.length / items.length < 0.6) return;
+    // 字母不能全一样（避免误判）
     const letters = new Set(validOpts.map(o=>o.letter));
-    const isChoiceForm = validOpts.length >= 2
-                      && validOpts.length / items.length >= 0.6
-                      && letters.size >= 2;
+    if(letters.size < 2) return;
 
-    // 单条 li 且是"比如/例如/如："开头 → 开放式问答（文本输入）
-    const singleExampleRE = /^\s*(?:比如|例如|如|举例|示例|e\.?g\.?|for\s*example)[：:]?\s*(.+)$/i;
-    let textFormExample = null;
-    if(!isChoiceForm && items.length === 1){
-      const t = items[0].textContent.trim();
-      const m = t.match(singleExampleRE);
-      if(m && m[1].trim().length >= 4){
-        textFormExample = m[1].trim();
-      } else if(t.length >= 6 && /→|->|↓|、|，|,\s*/.test(t)){
-        // 单条 li 里含 "→/->/↓/、/," 这种"步骤链"也当作示例
-        textFormExample = t;
-      }
+    // 找问题：向前找非空的兄弟块
+    let prev = ul.previousElementSibling;
+    while(prev){
+      const t = (prev.textContent||'').trim();
+      if(t) break;
+      prev = prev.previousElementSibling;
     }
+    if(!prev) return;
 
-    if(!isChoiceForm && !textFormExample) return;
+    const q = extractQuestion(prev);
+    if(!q) return;
 
-    // 找问题
-    const found = findQuestion(ul);
-    if(!found) return;
-    const { q, prev } = found;
-
+    // 构建 qform
     qCount++;
     const qid = 'qf_' + Math.random().toString(36).slice(2,8);
     const cleanQ = stripPrefix(q.text);
     const hint = (q.hint || '').replace(/^[\s（(]+|[\s）)]+$/g,'').trim();
-    const hintHtml = hint ? `<div class="qform-sub">${hint}</div>` : '';
-
-    const qform = document.createElement('div');
-    qform.className = 'qform' + (textFormExample ? ' text-form' : '');
-    qform.dataset.idx = qCount;
-    qform.dataset.qid = qid;
-    qform.dataset.question = cleanQ;
-
-    if(textFormExample){
-      // 开放式：一个文本框
-      const safeExample = textFormExample.replace(/"/g,'&quot;');
-      qform.innerHTML = `<div class="qform-head">
-        <span><em class="qnum">Q${qCount}</em>${cleanQ}</span>
-        <span class="hint">开放式 · 可留空</span>
-      </div>
-      ${hintHtml}
-      <textarea class="qform-textarea" placeholder="示例：${safeExample}"></textarea>`;
-    } else {
-      // 选择题
-      const optsHtml = validOpts.map(({letter, text})=>{
-        const isOther = /其[它他]|没想好|other|建议|随便|自定|帮我梳理|帮我理|自己/i.test(text);
-        return `<label class="opt" data-letter="${letter}">
-          <input type="checkbox" name="${qid}" value="${letter}"/>
-          <span class="letter">${letter}</span>
-          <span class="text">${text}</span>
-          ${isOther ? `<div class="other-wrap"><input type="text" class="other-txt" placeholder="补充说明…" disabled/></div>` : ''}
-        </label>`;
-      }).join('');
-      qform.innerHTML = `<div class="qform-head">
-        <span><em class="qnum">Q${qCount}</em>${cleanQ}</span>
-        <span class="hint">多选 / 可留空</span>
-      </div>
-      ${hintHtml}
-      <div class="qform-opts">${optsHtml}</div>`;
-    }
-
-    // 移除原来的问题块和 ul，插入 qform
-    prev.parentNode.insertBefore(qform, prev);
-    prev.remove();
-    ul.remove();
-  });
-
-  /* ---------- 新增：连续"选项段落"识别（每段独立成 <p><strong>A. xxx</strong>...</p>） ---------- */
-  const optParagraphProcessed = new WeakSet();
-  const allP = [...wrap.querySelectorAll('p')];
-
-  function makeChoiceQForm(validOpts, questionEl, groupToRemove){
-    const q = extractQuestion(questionEl);
-    if(!q) return false;
-    qCount++;
-    const qid = 'qf_' + Math.random().toString(36).slice(2,8);
-    const cleanQ = stripPrefix(q.text);
-    const hint = (q.hint || '').replace(/^[\s（(]+|[\s）)]+$/g,'').trim();
-    const hintHtml = hint ? `<div class="qform-sub">${hint}</div>` : '';
     const optsHtml = validOpts.map(({letter, text})=>{
       const isOther = /其[它他]|没想好|other|建议|随便|自定|帮我梳理|帮我理|自己/i.test(text);
+      // text 里可能残留 <strong> 之类小标签，为安全起见去掉
+      const safeText = text;
       return `<label class="opt" data-letter="${letter}">
         <input type="checkbox" name="${qid}" value="${letter}"/>
         <span class="letter">${letter}</span>
-        <span class="text">${text}</span>
+        <span class="text">${safeText}</span>
         ${isOther ? `<div class="other-wrap"><input type="text" class="other-txt" placeholder="补充说明…" disabled/></div>` : ''}
       </label>`;
     }).join('');
+    const hintHtml = hint ? `<div class="qform-sub">${hint}</div>` : '';
+
     const qform = document.createElement('div');
     qform.className = 'qform';
     qform.dataset.idx = qCount;
@@ -1442,110 +1285,11 @@ function enhanceQuestions(html){
     </div>
     ${hintHtml}
     <div class="qform-opts">${optsHtml}</div>`;
-    questionEl.parentNode.insertBefore(qform, questionEl);
-    questionEl.remove();
-    groupToRemove.forEach(g=>g.remove());
-    return true;
-  }
 
-  allP.forEach(p=>{
-    if(optParagraphProcessed.has(p)) return;
-    if(p.closest('.qform') || p.closest('li')) return;
-    // 已被上一轮处理移除了
-    if(!wrap.contains(p)) return;
-
-    const plainText = (p.textContent||'').trim();
-    if(plainText.length > 240) return; // 太长不像选项
-    const opt = parseOption(plainText);
-    if(!opt) return;
-
-    // 收集连续的兄弟 <p>，每段都能解析成选项
-    const group = [p];
-    let next = p.nextElementSibling;
-    while(next){
-      if(next.tagName !== 'P') break;
-      const nt = (next.textContent||'').trim();
-      if(nt.length > 240) break;
-      const nOpt = parseOption(nt);
-      if(!nOpt) break;
-      group.push(next);
-      next = next.nextElementSibling;
-    }
-
-    if(group.length < 2) return;
-    const validOpts = group.map(pp=>parseOption((pp.textContent||'').trim())).filter(x=>x);
-    const letters = new Set(validOpts.map(o=>o.letter));
-    if(letters.size < 2) return;
-
-    // 找问题：向前找非空块
-    let questionEl = group[0].previousElementSibling;
-    while(questionEl && !(questionEl.textContent||'').trim()){
-      questionEl = questionEl.previousElementSibling;
-    }
-    if(!questionEl) return;
-
-    // 标记为已处理
-    group.forEach(g=>optParagraphProcessed.add(g));
-
-    makeChoiceQForm(validOpts, questionEl, group);
-  });
-
-  /* ---------- 第 3 类：独立"编号问题 + 提示"的开放式问答 ---------- */
-  // 匹配 <p><strong>数字/①. xxx?</strong> hint...</p>，且这段之后没跟着 <ul>
-  const allP3 = [...wrap.querySelectorAll('p')];
-  allP3.forEach(p=>{
-    if(!wrap.contains(p)) return;
-    if(p.closest('.qform') || p.closest('li')) return;
-
-    // 第一个子元素必须是 <strong>
-    const firstStrong = p.querySelector(':scope > strong');
-    if(!firstStrong) return;
-    // 且 strong 必须在段首（前面不能有非空白文本）
-    let precedingText = '';
-    let n = p.firstChild;
-    while(n && n !== firstStrong){
-      precedingText += n.textContent || '';
-      n = n.nextSibling;
-    }
-    if(precedingText.trim().length > 0) return;
-
-    const strongText = firstStrong.textContent.trim();
-    // strong 必须像"编号+问号"的问题：以 数字/圆圈数字/Q + 分隔符 开头，以 ? 或 ？ 结尾
-    const looksLikeQ = /^\s*(?:Q?\s*\d+|[①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳])\s*[.．、｜|:：)）]/.test(strongText)
-                     && /[?？]/.test(strongText);
-    if(!looksLikeQ) return;
-    // strong 长度合理
-    if(strongText.length < 5 || strongText.length > 120) return;
-
-    // strong 之后的文字作为 hint（示例/说明）
-    let hintTxt = '';
-    let sib = firstStrong.nextSibling;
-    while(sib){
-      hintTxt += sib.textContent || '';
-      sib = sib.nextSibling;
-    }
-    hintTxt = hintTxt.trim();
-
-    // 如果段落里除了 strong 就没别的了，也允许（用问题本身作 placeholder 提示）
-    // 但必须有一定长度否则可能只是普通标题
-    if(hintTxt.length < 2 && strongText.length < 15) return;
-
-    qCount++;
-    const qid = 'qf_' + Math.random().toString(36).slice(2,8);
-    const cleanQ = stripPrefix(strongText);
-    const safeHint = (hintTxt || '请在此描述你的答案…').replace(/"/g,'&quot;');
-    const qform = document.createElement('div');
-    qform.className = 'qform text-form';
-    qform.dataset.idx = qCount;
-    qform.dataset.qid = qid;
-    qform.dataset.question = cleanQ;
-    qform.innerHTML = `<div class="qform-head">
-      <span><em class="qnum">Q${qCount}</em>${cleanQ}</span>
-      <span class="hint">开放式 · 可留空</span>
-    </div>
-    <textarea class="qform-textarea" placeholder="${safeHint}"></textarea>`;
-    p.parentNode.insertBefore(qform, p);
-    p.remove();
+    // 移除原来的问题块和 ul，插入 qform
+    prev.parentNode.insertBefore(qform, prev);
+    prev.remove();
+    ul.remove();
   });
 
   return wrap.innerHTML;
@@ -1591,18 +1335,6 @@ function fillAnswersToInput(bodyEl, actionsEl){
   forms.forEach(form=>{
     const q = form.dataset.question;
     const idx = form.dataset.idx;
-
-    // 开放式文本题
-    if(form.classList.contains('text-form')){
-      const ta = form.querySelector('.qform-textarea');
-      const text = (ta && ta.value.trim()) || '';
-      if(text){
-        lines.push(`【Q${idx}】${q}\n  → ${text}`);
-      }
-      return;
-    }
-
-    // 选择题
     const checked = [...form.querySelectorAll('.opt')].filter(o=>o.querySelector('input[type=checkbox]').checked);
     if(!checked.length) return;
     const parts = checked.map(o=>{
@@ -1618,7 +1350,7 @@ function fillAnswersToInput(bodyEl, actionsEl){
   });
   if(!lines.length){
     const btn = actionsEl.querySelector('.btn-fill');
-    const old = btn.textContent; btn.textContent = '还没填任何内容';
+    const old = btn.textContent; btn.textContent = '还没勾选任何选项';
     setTimeout(()=>{btn.textContent = old}, 1600);
     return;
   }
