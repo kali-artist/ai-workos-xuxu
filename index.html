@@ -1003,6 +1003,9 @@ async function stream(text,attachments,onDelta){
         } else if(t==='run.terminal' || t==='session.done' || t==='run.completed' || t==='run.finished'){
           // 兜底：真正的运行终点
           done = true; break;
+        } else if(t==='session.idle' && inner.properties && inner.properties.status && inner.properties.status.type==='idle'){
+          // session 变为 idle 表示 AI 已停止响应，可以结束
+          done = true; break;
         }
       }
     }
