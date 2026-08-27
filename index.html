@@ -921,7 +921,7 @@ function add(role,text){
 
 async function ensureConv(){
   if(conv) return conv;
-  const r=await fetch(`${API_BASE}/oapi/agent/v1/agents/${AGENT_ID}/conversations`,{
+  const r=await fetch(`/api/chat`,{
     method:'POST',headers:{'Authorization':`Bearer ${API_KEY}`,'Content-Type':'application/json'},body:'{}'
   });
   const j=await r.json();
@@ -932,10 +932,10 @@ async function ensureConv(){
 }
 async function stream(text,attachments,onDelta){
   await ensureConv();
-  const resp=await fetch(`${API_BASE}/oapi/agent/v1/conversations/${conv}/execute/stream`,{
+  const resp=await fetch(`/api/chat`,{
     method:'POST',
     headers:{'Authorization':`Bearer ${API_KEY}`,'Content-Type':'application/json','Accept':'text/event-stream'},
-    body:JSON.stringify({content:text,attachments:attachments||[]})
+    body:JSON.stringify({content:text,attachments:attachments||[],conversationId:conv})
   });
   if(!resp.ok) throw new Error('HTTP '+resp.status);
   const reader=resp.body.getReader();
@@ -1037,7 +1037,7 @@ async function uploadFile(file){
   const boundary = 'yd' + Math.random().toString(36).slice(2);
   const fd = new FormData();
   fd.append('file', file);
-  const r = await fetch(`${API_BASE}/oapi/power/v1/file/upload`,{
+  const r = await fetch(`/api/upload`,{
     method:'POST',
     headers:{'Authorization':`Bearer ${API_KEY}`},
     body:fd
