@@ -152,26 +152,27 @@ export async function onRequest({ request, env }) {
           }
         }
       } catch (e) {
-        // 解析失败，原样转发
         actualType = ev || 'message';
         try { actualData = JSON.parse(dt); } catch { actualData = dt; }
       }
 
-      // 丢弃的生命周期事件
-      if (actualType === 'xybot-run-lifecycle' || actualType === 'server.connected' || actualType === 'session.status') return;
+      // 丢弃的生命周期噪音事件
+      if (actualType === 'server.connected' || actualType === 'session.status' || actualType === 'catalog.updated') return;
 
-      // message.updated 类型 → 前端的 message.part.updated
+      // message.updated → 前端期望 event:message.updated 格式
       if (actualType === 'message.updated') {
-        const text = actualData.text || '';
-        if (text) {
-          write('message.part.updated', {
-            properties: { part: { type: 'text', text } }
-          });
-        }
+        // 把 inner.properties 直接发出去，前端会检查 properties.info.finish
+        write('message.updated', actualData);
         return;
       }
 
-      // 其它事件原样转发，保留原始 data.type
+      // message.part.updated → 前端期望 event:message.part.updated
+      if (actualType === 'message.part.updated') {
+        write('message.part.updated', actualData);
+        return;
+      }
+
+      // 其它事件原样转发，event 名用 data.type
       write(actualType || ev || 'message', actualData);
     };
 
