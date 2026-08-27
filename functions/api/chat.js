@@ -132,16 +132,37 @@ export async function onRequest({ request, env }) {
 
       if (ev === 'xybot-run-lifecycle') return;
 
-      if (ev === 'xybot-message') {
-        let text = '';
-        try {
-          const parsed = JSON.parse(dt);
-          text =
-            parsed.content ||
-            (parsed.data && parsed.data.content) ||
-            (parsed.properties && parsed.properties.part && parsed.properties.part.text) ||
-            '';
-        } catch {}
+      // 解析 data 字段获取实际事件类型和内容
+      let actualType = '';
+      let actualData = {};
+      try {
+        const parsed = JSON.parse(dt);
+        // parsed.data 是影刀内部 JSON 字符串
+        const inner = typeof parsed.data === 'string' ? JSON.parse(parsed.data) : parsed.data;
+        actualType = inner && inner.type || '';
+        // properties 包含实际数据
+        actualData = (inner && inner.properties) || {};
+        // text 可能藏在 properties.parts[].text 或 properties.info.content
+        if (!actualData.text) {
+          const parts = actualData.parts;
+          if (Array.isArray(parts)) {
+            actualData.text = parts.map(p => p.text || '').join('');
+          } else if (actualData.info && actualData.info.content) {
+            actualData.text = actualData.info.content;
+          }
+        }
+      } catch (e) {
+        // 解析失败，原样转发
+        actualType = ev || 'message';
+        try { actualData = JSON.parse(dt); } catch { actualData = dt; }
+      }
+
+      // 丢弃的生命周期事件
+      if (actualType === 'xybot-run-lifecycle' || actualType === 'server.connected' || actualType === 'session.status') return;
+
+      // message.updated 类型 → 前端的 message.part.updated
+      if (actualType === 'message.updated') {
+        const text = actualData.text || '';
         if (text) {
           write('message.part.updated', {
             properties: { part: { type: 'text', text } }
@@ -150,12 +171,8 @@ export async function onRequest({ request, env }) {
         return;
       }
 
-      // 其它事件原样转发.
-      try {
-        write(ev || 'message', JSON.parse(dt));
-      } catch {
-        write(ev || 'message', dt);
-      }
+      // 其它事件原样转发，保留原始 data.type
+      write(actualType || ev || 'message', actualData);
     };
 
     try {
