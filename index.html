@@ -812,7 +812,7 @@
     <button class="send" id="send">发 送</button>
     <div class="footnote">
       <span>由 影刀 RPA 需求顾问 · Agent 09d08458 驱动</span>
-      <span class="r">© <span id="yy">2026</span> · REQ.01 · v0827.7</span>
+      <span class="r">© <span id="yy">2026</span> · REQ.01 · v0827.8</span>
     </div>
   </footer>
 </div>
@@ -1317,6 +1317,13 @@ function enhanceQuestions(html){
       }
     }
 
+    // 单条 li 且不是选项格式：也当作开放式问答的提示
+    if(!isChoiceForm && !textFormExample && items.length === 1){
+      const t = items[0].textContent.trim();
+      if(t.length >= 3 && !parseOption(t)){
+        textFormExample = t;
+      }
+    }
     if(!isChoiceForm && !textFormExample) return;
 
     // 找问题
@@ -1471,11 +1478,22 @@ function enhanceQuestions(html){
 
     const strongText = firstStrong.textContent.trim();
     // strong 必须像"编号+问号"的问题：以 数字/圆圈数字/Q + 分隔符 开头，以 ? 或 ？ 结尾
-    const looksLikeQ = /^\s*(?:Q?\s*\d+|[①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳])\s*[.．、｜|:：)）]/.test(strongText)
-                     && /[?？]/.test(strongText);
+    // 判断 strong 是否像一个问题：
+    // (A) 有编号前缀 + 问号结尾（原逻辑）
+    const hasNumberPrefix = /^\s*(?:Q?\s*\d+|[①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳])\s*[.．、｜|:：)）]/.test(strongText);
+    const hasQuestionMark = /[?？]/.test(strongText);
+    // (B) 无编号但以问号结尾
+    // (C) 无问号但有典型疑问关键词开头（"请/你/哪/需要/想/如何/怎么/是否/多久/打算/有没有/能否/可以"）
+    const hasQuestionKeyword = /^(?:\d+\s*[.．、)）:：]\s*)?(?:请|你|哪|需要|想|打算|如何|怎么|是否|多久|有没有|能否|可以|什么|为什么|目前|有无|希望|期望|倾向|方便|介意)/.test(strongText);
+    // (D) 以冒号/：结尾（"你的预算："这种也算问题）
+    const endsWithColon = /[:：]\s*$/.test(strongText);
+    const looksLikeQ = (hasNumberPrefix && hasQuestionMark)
+                     || (!hasNumberPrefix && hasQuestionMark)
+                     || hasQuestionKeyword
+                     || (endsWithColon && strongText.length >= 4);
     if(!looksLikeQ) return;
     // strong 长度合理
-    if(strongText.length < 5 || strongText.length > 120) return;
+    if(strongText.length < 4 || strongText.length > 150) return;
 
     // strong 之后的文字作为 hint（示例/说明）
     let hintTxt = '';
@@ -1504,6 +1522,44 @@ function enhanceQuestions(html){
       <span class="hint">开放式 · 可留空</span>
     </div>
     <textarea class="qform-textarea" placeholder="${safeHint}"></textarea>`;
+    p.parentNode.insertBefore(qform, p);
+    p.remove();
+  });
+
+
+  /* ---------- 第 4 类：纯问题段落（无 strong，但以 ?/？ 结尾）→ 开放式文本表单 ---------- */
+  const allP4 = [...wrap.querySelectorAll('p')];
+  allP4.forEach(p=>{
+    if(!wrap.contains(p)) return;
+    if(p.closest('.qform') || p.closest('li')) return;
+    // 跳过后面紧跟着 ul 的（那些会被 Type 1 处理）
+    let nextEl = p.nextElementSibling;
+    while(nextEl && !(nextEl.textContent||'').trim()) nextEl = nextEl.nextElementSibling;
+    if(nextEl && nextEl.tagName === 'UL') return;
+
+    const text = (p.textContent||'').trim();
+    if(text.length < 4 || text.length > 200) return;
+    // 已经有 strong 的在 Type 3 里处理了
+    if(p.querySelector('strong')) return;
+
+    // 必须像一个问题：以 ?/？ 结尾，或者有疑问关键词
+    const isQuestion = /[?？]\s*$/.test(text)
+      || (/^(?:\d+\s*[.．、)）:：]\s*)?(?:请|你|哪|需要|想|打算|如何|怎么|是否|多久|有没有|能否|可以|什么|为什么|目前|有无|希望|期望|倾向|方便|介意)/.test(text) && text.length <= 80);
+    if(!isQuestion) return;
+
+    qCount++;
+    const qid = 'qf_' + Math.random().toString(36).slice(2,8);
+    const cleanQ = stripPrefix(text.replace(/[?？:：]\s*$/,''));
+    const qform = document.createElement('div');
+    qform.className = 'qform text-form';
+    qform.dataset.idx = qCount;
+    qform.dataset.qid = qid;
+    qform.dataset.question = cleanQ;
+    qform.innerHTML = `<div class="qform-head">
+      <span><em class="qnum">Q${qCount}</em>${cleanQ}</span>
+      <span class="hint">开放式 · 可留空</span>
+    </div>
+    <textarea class="qform-textarea" placeholder="请在此描述你的答案…"></textarea>`;
     p.parentNode.insertBefore(qform, p);
     p.remove();
   });
