@@ -1073,6 +1073,9 @@ async function stream(text,attachments,onDelta){
         } else if(t==='run.terminal' || t==='session.done' || t==='run.completed' || t==='run.finished'){
           // 兜底：真正的运行终点
           done = true; break;
+        } else if(t==='session.idle'){
+          // 影刀 v2 协议：会话空闲事件 = 流已结束
+          done = true; break;
         }
       }
     }
