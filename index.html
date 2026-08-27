@@ -389,7 +389,50 @@
   .msg.agent .body hr{
     border:none;border-top:1px solid var(--line);margin:12px 0;
   }
-  .msg.agent .body a{color:var(--accent-2);text-decoration:underline}
+  .msg.agent .body a{
+    color:var(--accent-2);
+    text-decoration:underline;
+    text-underline-offset:3px;
+    text-decoration-style:dotted;
+    word-break:break-all;
+    transition:all .15s;
+  }
+  .msg.agent .body a:hover{
+    color:var(--ink);
+    text-decoration-style:solid;
+    background:rgba(245,181,42,0.15);
+    padding:1px 3px;
+    margin:-1px -3px;
+  }
+  /* 表格 */
+  .msg.agent .body table{
+    width:100%;
+    border-collapse:collapse;
+    margin:10px 0 14px;
+    font-size:13.5px;
+    line-height:1.5;
+    font-family:'Noto Sans SC','Inter Tight',sans-serif;
+  }
+  .msg.agent .body table th{
+    background:rgba(245,181,42,0.18);
+    font-weight:700;
+    text-align:left;
+    border:1px solid var(--line);
+    padding:8px 10px;
+    white-space:nowrap;
+    font-size:13px;
+  }
+  .msg.agent .body table td{
+    border:1px solid var(--line);
+    padding:7px 10px;
+    vertical-align:top;
+  }
+  .msg.agent .body table tbody tr:nth-child(even){
+    background:rgba(245,181,42,0.05);
+  }
+  .msg.agent .body table tbody tr:hover{
+    background:rgba(245,181,42,0.1);
+  }
   .msg.user .body{font-weight:600}
   .msg.agent .body{font-weight:500}
 
@@ -812,7 +855,7 @@
     <button class="send" id="send">发 送</button>
     <div class="footnote">
       <span>由 影刀 RPA 需求顾问 · Agent 09d08458 驱动</span>
-      <span class="r">© <span id="yy">2026</span> · REQ.01 · v0827.6</span>
+      <span class="r">© <span id="yy">2026</span> · REQ.01 · v0827.7</span>
     </div>
   </footer>
 </div>
@@ -858,6 +901,48 @@ function renderMD(src){
 
   // inline code
   s = s.replace(/`([^`\n]+)`/g,(_,c)=>`<code>${c}</code>`);
+
+  // ---------- GFM 表格：| a | b | 转 <table> ----------
+  s = s.replace(/(?:^\s*\|[^\n]*\|\s*$[\n]?)+/gm, function(block){
+    const rows = block.split('\n').map(r=>r.trim()).filter(r=>r && r.startsWith('|') && r.endsWith('|') && r.length > 2);
+    if(rows.length < 2) return block;
+    // 判断分隔行（| --- | :--: | 这种）
+    const sepIdx = rows.findIndex(r => /^\|[\s:|-]+\|$/.test(r));
+    if(sepIdx < 0) return block;
+    const headerRow = rows[0];
+    const bodyRows = rows.slice(sepIdx+1);
+    const splitCells = r => r.slice(1, -1).split('|').map(c=>c.trim());
+    const aligns = splitCells(rows[sepIdx]).map(c => {
+      const t = c.replace(/-/g,'');
+      if(t.startsWith(':') && t.endsWith(':')) return ' center';
+      if(t.endsWith(':')) return ' right';
+      return '';
+    });
+    const ths = splitCells(headerRow).map((c,i)=>`<th style="text-align:${aligns[i]||'left'}">${c}</th>`).join('');
+    const trs = bodyRows.map(r=>{
+      const tds = splitCells(r).map((c,i)=>`<td style="text-align:${aligns[i]||'left'}">${c||'\u00a0'}</td>`).join('');
+      return `<tr>${tds}</tr>`;
+    }).join('');
+    return `<table><thead><tr>${ths}</tr></thead><tbody>${trs}</tbody></table>\n`;
+  });
+
+  // ---------- 链接 ----------
+  // 1) markdown 链接 [text](url)
+  s = s.replace(/\[([^\]\n]+)\]\((https?:\/\/[^)\s]+)\)/g, (_, txt, url) => {
+    return `<a href="${url}" target="_blank" rel="noopener noreferrer">${txt}</a>`;
+  });
+  // 2) 裸 URL → 缩短显示的超链接（注意：& 已被 escHTML 转成 &amp;，需要完整匹配）
+  s = s.replace(/(^|[\s(（【「])(https?:\/\/[^\s)）】」<>"'，,。]+)/g, (_, pre, url) => {
+    let urlClean = url.replace(/&amp;/g,'&');
+    let display = urlClean;
+    try{
+      const u = new URL(urlClean);
+      let path = u.pathname.length > 28 ? u.pathname.slice(0,28) + '…' : u.pathname;
+      let host = u.host.indexOf('www.') === 0 ? u.host.slice(4) : u.host;
+      display = (u.protocol==='https:' ? 'https:' : 'http:') + '//' + host + path;
+    }catch(_){}
+    return `${pre}<a href="${url}" target="_blank" rel="noopener noreferrer" title="${urlClean}">${display}</a>`;
+  });
 
   // headings (支持 h1~h4，其它按 h4)
   s = s.replace(/^#{4,6} (.+)$/gm,'<h4>$1</h4>');
@@ -913,8 +998,8 @@ function renderMD(src){
   // 1) 行首的 <strong> 前面若跟着别的内容，插入空行（让每个粗体问句独立成段）
   s = s.replace(/([^\n])\n(<strong>)/g, '$1\n\n$2');
   // 2) 块级元素前后加空行
-  s = s.replace(/([^\n])\n(<(?:ul|ol|h[1-6]|blockquote|pre|hr\b))/gi, '$1\n\n$2');
-  s = s.replace(/(<\/(?:ul|ol|blockquote|pre)>)\n([^\n])/g, '$1\n\n$2');
+  s = s.replace(/([^\n])\n(<(?:ul|ol|h[1-6]|blockquote|pre|table|hr\b))/gi, '$1\n\n$2');
+  s = s.replace(/(<\/(?:ul|ol|blockquote|pre|table)>)\n([^\n])/g, '$1\n\n$2');
   // 3) 折叠 3+ 连续换行
   s = s.replace(/\n{3,}/g, '\n\n');
 
@@ -976,7 +1061,7 @@ function add(role,text){
 
 async function ensureConv(){
   if(conv) return conv;
-  const r=await fetch(`${API_BASE}/api/chat`,{
+  const r=await fetch(`${API_BASE}/chat`,{
     method:'POST',headers:{'Content-Type':'application/json'},body:'{}'
   });
   const j=await r.json();
@@ -987,10 +1072,10 @@ async function ensureConv(){
 }
 async function stream(text,attachments,onDelta){
   await ensureConv();
-  const resp=await fetch(`${API_BASE}/api/chat`,{
+  const resp=await fetch(`${API_BASE}/chat`,{
     method:'POST',
     headers:{'Content-Type':'application/json','Accept':'text/event-stream'},
-    body:JSON.stringify({content:text,attachments:attachments||[],conversationId:conv})
+    body:JSON.stringify({content:text,attachments:attachments||[]})
   });
   if(!resp.ok) throw new Error('HTTP '+resp.status);
   const reader=resp.body.getReader();
@@ -1058,9 +1143,6 @@ async function stream(text,attachments,onDelta){
         } else if(t==='run.terminal' || t==='session.done' || t==='run.completed' || t==='run.finished'){
           // 兜底：真正的运行终点
           done = true; break;
-        } else if(t==='session.idle' && inner.properties && inner.properties.status && inner.properties.status.type==='idle'){
-          // session 变为 idle 表示 AI 已停止响应，可以结束
-          done = true; break;
         }
       }
     }
@@ -1095,9 +1177,9 @@ async function uploadFile(file){
   const boundary = 'yd' + Math.random().toString(36).slice(2);
   const fd = new FormData();
   fd.append('file', file);
-  const r = await fetch(`${API_BASE}/api/upload`,{
+  const r = await fetch(`${API_BASE}/upload`,{
     method:'POST',
-    headers:{},
+    headers:{'Authorization':`Bearer ${API_KEY}`},
     body:fd
   });
   const j = await r.json();
@@ -1588,7 +1670,6 @@ async function submit(){
       body.innerHTML = enhanceQuestions(renderMD(raw));
       attachQFormEvents(body);
     } else {
-      if(finalized) return;  // 已 finalize，跳过覆盖
       body.innerHTML = renderMD(raw);
     }
     feed.scrollTop = feed.scrollHeight;
