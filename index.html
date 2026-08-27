@@ -791,8 +791,8 @@
 </div>
 
 <script>
-const API_BASE='';  // 走CF Function同源代理
-const API_KEY='';   // 不再需要
+const API_BASE='';
+const API_KEY='AP_zq2LVtx7BoRzFDix';
 const AGENT_ID='09d08458-9b9c-41c7-ba5d-2daeb70e148a';
 // 复用头像图标（跟 header 里那张同一个 base64）
 const ICON_URL = document.querySelector('header .title .icon').src;
@@ -921,25 +921,21 @@ function add(role,text){
 
 async function ensureConv(){
   if(conv) return conv;
-  // 通过CF Function创建会话，API Key不暴露在前端
   const r=await fetch(`/api/chat`,{
-    method:'POST',
-    headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({content:'',attachments:[],AGENT_ID})
+    method:'POST',headers:{'Content-Type':'application/json'},body:'{}'
   });
   const j=await r.json();
-  if(!j.data) throw new Error('conv');
+  if(!j.success) throw new Error(j.msg||'conv');
   conv=j.data.conversationUuid;
   sess.textContent=conv.slice(0,8).toUpperCase();
   return conv;
 }
 async function stream(text,attachments,onDelta){
   await ensureConv();
-  // 通过CF Function代理流式对话
   const resp=await fetch(`/api/chat`,{
     method:'POST',
     headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({content:text,attachments:attachments||[],AGENT_ID})
+    body:JSON.stringify({content:text,attachments:attachments||[],conversationId:conv})
   });
   if(!resp.ok) throw new Error('HTTP '+resp.status);
   const reader=resp.body.getReader();
@@ -1004,8 +1000,8 @@ async function stream(text,attachments,onDelta){
             // 其它都当结束
             done = true; break;
           }
-        } else if(t==='run.terminal' || t==='session.done' || t==='run.completed' || t==='run.finished' || t==='server.heartbeat'){
-          // 兜底：真正的运行终点（yingdao用server.heartbeat重复发送后结束流）
+        } else if(t==='run.terminal' || t==='session.done' || t==='run.completed' || t==='run.finished'){
+          // 兜底：真正的运行终点
           done = true; break;
         }
       }
