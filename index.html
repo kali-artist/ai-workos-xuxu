@@ -863,6 +863,15 @@ function renderMD(src){
   s = s.replace(/<\/ul>\s*<ul>/g, '');
   s = s.replace(/<\/ol>\s*<ol>/g, '');
 
+  // 关键补丁：为块级元素强制补上前后空行，防止"问题+选项列表"没有空行时被黏成一大段
+  // 1) 行首的 <strong> 前面若跟着别的内容，插入空行（让每个粗体问句独立成段）
+  s = s.replace(/([^\n])\n(<strong>)/g, '$1\n\n$2');
+  // 2) 块级元素前后加空行
+  s = s.replace(/([^\n])\n(<(?:ul|ol|h[1-6]|blockquote|pre|hr\b))/gi, '$1\n\n$2');
+  s = s.replace(/(<\/(?:ul|ol|blockquote|pre)>)\n([^\n])/g, '$1\n\n$2');
+  // 3) 折叠 3+ 连续换行
+  s = s.replace(/\n{3,}/g, '\n\n');
+
   // 段落：连续空行分段，其它单换行变 <br>
   const paras = s.split(/\n{2,}/).map(p=>p.trim()).filter(Boolean);
   s = paras.map(p=>{
