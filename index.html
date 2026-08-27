@@ -976,8 +976,8 @@ function add(role,text){
 
 async function ensureConv(){
   if(conv) return conv;
-  const r=await fetch(`${API_BASE}/oapi/agent/v1/agents/${AGENT_ID}/conversations`,{
-    method:'POST',headers:{'Authorization':`Bearer ${API_KEY}`,'Content-Type':'application/json'},body:'{}'
+  const r=await fetch(`${API_BASE}/api/chat`,{
+    method:'POST',headers:{'Content-Type':'application/json'},body:'{}'
   });
   const j=await r.json();
   if(!j.success) throw new Error(j.msg||'conv');
@@ -987,10 +987,10 @@ async function ensureConv(){
 }
 async function stream(text,attachments,onDelta){
   await ensureConv();
-  const resp=await fetch(`${API_BASE}/oapi/agent/v1/conversations/${conv}/execute/stream`,{
+  const resp=await fetch(`${API_BASE}/api/chat`,{
     method:'POST',
-    headers:{'Authorization':`Bearer ${API_KEY}`,'Content-Type':'application/json','Accept':'text/event-stream'},
-    body:JSON.stringify({content:text,attachments:attachments||[]})
+    headers:{'Content-Type':'application/json','Accept':'text/event-stream'},
+    body:JSON.stringify({content:text,attachments:attachments||[],conversationId:conv})
   });
   if(!resp.ok) throw new Error('HTTP '+resp.status);
   const reader=resp.body.getReader();
@@ -1057,6 +1057,9 @@ async function stream(text,attachments,onDelta){
           }
         } else if(t==='run.terminal' || t==='session.done' || t==='run.completed' || t==='run.finished'){
           // 兜底：真正的运行终点
+          done = true; break;
+        } else if(t==='session.idle' && inner.properties && inner.properties.status && inner.properties.status.type==='idle'){
+          // session 变为 idle 表示 AI 已停止响应，可以结束
           done = true; break;
         }
       }
