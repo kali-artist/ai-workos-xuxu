@@ -132,48 +132,30 @@ export async function onRequest({ request, env }) {
 
       if (ev === 'xybot-run-lifecycle') return;
 
-      // 解析 data 字段获取实际事件类型和内容
-      let actualType = '';
-      let actualData = {};
-      try {
-        const parsed = JSON.parse(dt);
-        // parsed.data 是影刀内部 JSON 字符串
-        const inner = typeof parsed.data === 'string' ? JSON.parse(parsed.data) : parsed.data;
-        actualType = inner && inner.type || '';
-        // properties 包含实际数据
-        actualData = (inner && inner.properties) || {};
-        // text 可能藏在 properties.parts[].text 或 properties.info.content
-        if (!actualData.text) {
-          const parts = actualData.parts;
-          if (Array.isArray(parts)) {
-            actualData.text = parts.map(p => p.text || '').join('');
-          } else if (actualData.info && actualData.info.content) {
-            actualData.text = actualData.info.content;
-          }
+      if (ev === 'xybot-message') {
+        let text = '';
+        try {
+          const parsed = JSON.parse(dt);
+          text =
+            parsed.content ||
+            (parsed.data && parsed.data.content) ||
+            (parsed.properties && parsed.properties.part && parsed.properties.part.text) ||
+            '';
+        } catch {}
+        if (text) {
+          write('message.part.updated', {
+            properties: { part: { type: 'text', text } }
+          });
         }
-      } catch (e) {
-        actualType = ev || 'message';
-        try { actualData = JSON.parse(dt); } catch { actualData = dt; }
-      }
-
-      // 丢弃的生命周期噪音事件
-      if (actualType === 'server.connected' || actualType === 'session.status' || actualType === 'catalog.updated') return;
-
-      // message.updated → 前端期望 event:message.updated 格式
-      if (actualType === 'message.updated') {
-        // 把 inner.properties 直接发出去，前端会检查 properties.info.finish
-        write('message.updated', actualData);
         return;
       }
 
-      // message.part.updated → 前端期望 event:message.part.updated
-      if (actualType === 'message.part.updated') {
-        write('message.part.updated', actualData);
-        return;
+      // 其它事件原样转发.
+      try {
+        write(ev || 'message', JSON.parse(dt));
+      } catch {
+        write(ev || 'message', dt);
       }
-
-      // 其它事件原样转发，event 名用 data.type
-      write(actualType || ev || 'message', actualData);
     };
 
     try {
