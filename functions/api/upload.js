@@ -11,10 +11,14 @@ export async function onRequest({ request, env }) {
     });
   }
 
+  // 转发原 Content-Type（multipart/form-data 的 boundary 必须保留，否则影刀无法解析）
+  const ct = request.headers.get('Content-Type') || request.headers.get('content-type');
+
   const streamRes = await fetch('https://power-api.yingdao.com/oapi/power/v1/file/upload', {
     method: 'POST',
     headers: {
-      'Authorization': `Bearer ${apiKey}`
+      'Authorization': `Bearer ${apiKey}`,
+      ...(ct ? { 'Content-Type': ct } : {})
     },
     body: request.body
   });

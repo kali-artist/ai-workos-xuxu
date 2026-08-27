@@ -1329,12 +1329,15 @@ async function submit(){
   el.classList.add('thinking');
   let raw='';
   let rafPending=false;
+  let finalized=false;
   const flush=(finalize=false)=>{
     body.dataset.raw = raw;
     if(finalize){
+      finalized=true;
       body.innerHTML = enhanceQuestions(renderMD(raw));
       attachQFormEvents(body);
     } else {
+      if(finalized) return;  // 已 finalize，跳过（避免 rAF 回调把表单覆盖回普通列表）
       body.innerHTML = renderMD(raw);
     }
     feed.scrollTop = feed.scrollHeight;
