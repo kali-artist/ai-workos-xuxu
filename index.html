@@ -812,7 +812,7 @@
     <button class="send" id="send">发 送</button>
     <div class="footnote">
       <span>由 影刀 RPA 需求顾问 · Agent 09d08458 驱动</span>
-      <span class="r">© <span id="yy">2026</span> · REQ.01 · v0827.10</span>
+      <span class="r">© <span id="yy">2026</span> · REQ.01 · v0827.11</span>
     </div>
   </footer>
 </div>
@@ -1619,6 +1619,11 @@ function enhanceQuestions(html){
 
     const items = [...ol.querySelectorAll(':scope > li')];
     if(items.length === 0) return;
+
+    // 如果 ol 后面紧跟着 <ul>（可能是选项列表），跳过让 Type 1 处理
+    let nextSib = ol.nextElementSibling;
+    while(nextSib && !(nextSib.textContent||'').trim()) nextSib = nextSib.nextElementSibling;
+    if(nextSib && nextSib.tagName === 'UL') return;
 
     // 检查每个 li 是否包含问号（判定为问题）
     const questionFlags = items.map(li=>{
