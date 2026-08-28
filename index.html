@@ -812,7 +812,7 @@
     <button class="send" id="send">发 送</button>
     <div class="footnote">
       <span>由 影刀 RPA 需求顾问 · Agent 09d08458 驱动</span>
-      <span class="r">© <span id="yy">2026</span> · REQ.01 · v0827.13</span>
+      <span class="r">© <span id="yy">2026</span> · REQ.01 · v0827.14</span>
     </div>
   </footer>
 </div>
@@ -983,7 +983,8 @@ const send=document.getElementById('send');
 const sess=document.getElementById('sess');
 const clk=document.getElementById('clk');
 const turnCnt=document.getElementById('turnCnt');
-let conv=null,busy=false,n=0,turns=0;
+let conv=sessionStorage.getItem('xuxu_conv')||null;
+let busy=false,n=0,turns=0;
 let lastAgentBody=null;
 
 document.getElementById('yy').textContent = new Date().getFullYear();
@@ -1024,6 +1025,7 @@ async function ensureConv(){
   const j=await r.json();
   if(!j.success) throw new Error(j.msg||'conv');
   conv=j.data.conversationUuid;
+  sessionStorage.setItem('xuxu_conv', conv);
   sess.textContent=conv.slice(0,8).toUpperCase();
   return conv;
 }
@@ -1821,6 +1823,7 @@ async function submit(){
   pendingAttachments = []; renderAttachBar();
   busy=true; send.disabled=true;
   turns++; if(turnCnt) turnCnt.textContent = String(turns).padStart(2,'0');
+  saveHistory();
   const {el,body}=add('agent','');
   el.classList.add('thinking');
   let raw='';
@@ -1845,6 +1848,7 @@ async function submit(){
       if(!rafPending){ rafPending=true; requestAnimationFrame(()=>flush(false)); }
     });
     flush(true);  // 结束后再做表单增强
+    saveHistory();
     el.classList.remove('thinking');
   }catch(e){
     el.classList.remove('thinking');
@@ -1852,6 +1856,7 @@ async function submit(){
     body.dataset.raw = raw;
     body.innerHTML = enhanceQuestions(renderMD(raw));
     attachQFormEvents(body);
+    saveHistory();
   }finally{ busy=false; send.disabled=false; inp.focus(); }
 }
 
@@ -1953,7 +1958,7 @@ function flashBtn(btn,msg){
 // 重新开始
 document.getElementById('btnReset').addEventListener('click',()=>{
   if(busy){flashBtn(document.getElementById('btnReset'),'请稍候…');return}
-  conv=null; sess.textContent='— — — — — — — —';
+  conv=null; sessionStorage.removeItem('xuxu_conv'); sessionStorage.removeItem('xuxu_history'); sess.textContent='— — — — — — — —';
   feed.innerHTML=''; n=0; turns=0;
   if(turnCnt) turnCnt.textContent='0';
   lastAgentBody=null;
@@ -1961,10 +1966,51 @@ document.getElementById('btnReset').addEventListener('click',()=>{
   greet();
 });
 
+function saveHistory(){
+  const msgs = [...feed.querySelectorAll('.msg')];
+  const history = msgs.map(msg=>{
+    const role = msg.classList.contains('agent') ? 'agent' : 'user';
+    const body = msg.querySelector('.body');
+    const raw = role === 'agent' ? (body.dataset.raw || body.textContent) : body.textContent;
+    return {role, raw};
+  });
+  try{ sessionStorage.setItem('xuxu_history', JSON.stringify(history)); }catch(e){}
+}
+
 function greet(){
   add('agent','嗨嗨～我是影刀 RPA 的需求对接小助手 👋\n\n有什么想让机器人帮你搞定的？直接告诉我就好，不用组织语言，想到啥说啥 💭 我会一步步问你流程、系统、触发时机这些细节，最后帮你整理成一份能直接交付的需求描述 ✨\n\n来，第一句随意说～');
 }
-greet();
+// 页面加载：恢复历史对话或显示欢迎
+(function restoreOrGreet(){
+  const saved = sessionStorage.getItem('xuxu_history');
+  if(conv && saved){
+    // 恢复历史对话
+    try{
+      const history = JSON.parse(saved);
+      history.forEach(({role, raw})=>{
+        const {el, body} = add(role, '');
+        if(role === 'agent'){
+          body.dataset.raw = raw;
+          body.innerHTML = enhanceQuestions(renderMD(raw));
+          attachQFormEvents(body);
+          lastAgentBody = body;
+        } else {
+          body.classList.add('plain');
+          body.textContent = raw;
+        }
+      });
+      turns = history.filter(h=>h.role==='user').length;
+      if(turnCnt) turnCnt.textContent = String(turns).padStart(2,'0');
+      sess.textContent = conv.slice(0,8).toUpperCase();
+      feed.scrollTop = feed.scrollHeight;
+    }catch(e){
+      console.error('restore failed:', e);
+      greet();
+    }
+  } else {
+    greet();
+  }
+})();
 </script>
 </body>
 </html>
