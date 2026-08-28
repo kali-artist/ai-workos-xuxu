@@ -812,7 +812,7 @@
     <button class="send" id="send">发 送</button>
     <div class="footnote">
       <span>由 影刀 RPA 需求顾问 · Agent 09d08458 驱动</span>
-      <span class="r">© <span id="yy">2026</span> · REQ.01 · v0827.9</span>
+      <span class="r">© <span id="yy">2026</span> · REQ.01 · v0827.10</span>
     </div>
   </footer>
 </div>
@@ -1288,10 +1288,92 @@ function enhanceQuestions(html){
 
   const uls = [...wrap.querySelectorAll('ul')];
   uls.forEach(ul=>{
-    // 跳过嵌套在 li 里的子 ul
-    if(ul.closest('li')) return;
     // 跳过已经在 qform 内部的
     if(ul.closest('.qform')) return;
+
+    // 处理嵌套在 ol>li 里的选项列表（如 "1. 问题？\n   - A. 选项"）
+    const parentLi = ul.closest('li');
+    if(parentLi){
+      // 只处理直接父 li（不处理深层嵌套）
+      if(ul.parentElement !== parentLi) return;
+      // 获取 li 中 ul 之前的文本作为问题
+      let qText = '';
+      let node = parentLi.firstChild;
+      while(node && node !== ul){
+        qText += node.textContent || '';
+        node = node.nextSibling;
+      }
+      qText = qText.trim();
+      if(qText.length < 4) return;
+
+      // 检查 ul 里的选项
+      const items = [...ul.querySelectorAll(':scope > li')];
+      if(items.length === 0) return;
+      const parsed = items.map(li => parseOption(li.innerHTML));
+      const validOpts = parsed.filter(x=>x);
+      const letters = new Set(validOpts.map(o=>o.letter));
+      const isChoiceForm = validOpts.length >= 2
+                        && validOpts.length / items.length >= 0.6
+                        && letters.size >= 2;
+
+      if(!isChoiceForm){
+        // 不是选择题，检查是否是单条开放式提示
+        if(items.length === 1){
+          const t = items[0].textContent.trim();
+          if(t.length >= 3 && !parseOption(t)){
+            // 开放式文本表单
+            qCount++;
+            const qid = 'qf_' + Math.random().toString(36).slice(2,8);
+            const cleanQ = stripPrefix(qText.replace(/[?？:：]\s*$/,''));
+            const qform = document.createElement('div');
+            qform.className = 'qform text-form';
+            qform.dataset.idx = qCount;
+            qform.dataset.qid = qid;
+            qform.dataset.question = cleanQ;
+            const safePlaceholder = t.replace(/"/g,'&quot;');
+            qform.innerHTML = `<div class="qform-head">
+              <span><em class="qnum">Q${qCount}</em>${cleanQ}</span>
+              <span class="hint">开放式 · 可留空</span>
+            </div>
+            <textarea class="qform-textarea" placeholder="${safePlaceholder}"></textarea>`;
+            parentLi.parentNode.insertBefore(qform, parentLi);
+            parentLi.remove();
+            return;
+          }
+        }
+        return;
+      }
+
+      // 生成选择表单
+      qCount++;
+      const qid = 'qf_' + Math.random().toString(36).slice(2,8);
+      const cleanQ = stripPrefix(qText.replace(/[?？:：]\s*$/,''));
+      const hint = '';
+      const hintHtml = '';
+      const optsHtml = validOpts.map(({letter, text})=>{
+        const isOther = /其[它他]|没想好|other|建议|随便|自定|帮我梳理|帮我理|自己|直接说/i.test(text);
+        return `<label class="opt" data-letter="${letter}">
+          <input type="checkbox" name="${qid}" value="${letter}"/>
+          <span class="letter">${letter}</span>
+          <span class="text">${text}</span>
+          ${isOther ? `<div class="other-wrap"><input type="text" class="other-txt" placeholder="补充说明…" disabled/></div>` : ''}
+        </label>`;
+      }).join('');
+      const qform = document.createElement('div');
+      qform.className = 'qform';
+      qform.dataset.idx = qCount;
+      qform.dataset.qid = qid;
+      qform.dataset.question = cleanQ;
+      qform.innerHTML = `<div class="qform-head">
+        <span><em class="qnum">Q${qCount}</em>${cleanQ}</span>
+        <span class="hint">多选 / 可留空</span>
+      </div>
+      ${hintHtml}
+      <div class="qform-opts">${optsHtml}</div>`;
+      parentLi.parentNode.insertBefore(qform, parentLi);
+      parentLi.remove();
+      return;
+    }
 
     const items = [...ul.querySelectorAll(':scope > li')];
     if(items.length === 0) return;
