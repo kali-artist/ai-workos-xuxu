@@ -24,7 +24,7 @@ export async function onRequest({ request, env }) {
   let body = {};
   try { body = await request.json(); } catch {}
   const { content, attachments, conversationId, AGENT_ID } = body;
-  const agentId = AGENT_ID || '09d08458-9b9c-41c7-ba5d-2daeb70e148a';
+  const agentId = AGENT_ID || 'ea815e86-fb28-49cd-99b6-e5dcd92299f6';
 
   const ydHeaders = {
     'Authorization': `Bearer ${apiKey}`,
